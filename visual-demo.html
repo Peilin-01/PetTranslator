@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="2003 年风格的宠物翻译小游戏首页视觉 Demo。">
+  <title>PET//LINK 2003 · 首页视觉 Demo</title>
+  <link rel="stylesheet" href="./visual-demo.css">
+  <script src="./flow-data.js" defer></script>
+  <script src="./visual-demo.js" defer></script>
+</head>
+<body>
+  <svg class="sprite-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <symbol id="pixel-pet" viewBox="0 0 64 64">
+        <path fill="#15314a" d="M12 8h12v4h16V8h12v8h4v28h-4v8h-8v4H20v-4h-8v-8H8V16h4z"/>
+        <path fill="#9ffcff" d="M16 12h4v8h24v-8h4v8h4v20h-4v8h-8v4H24v-4h-8v-8h-4V20h4z"/>
+        <path fill="#6fd0ed" d="M16 16h4v8h-4zm28 0h4v8h-4zM12 28h8v12h-8zm32 0h8v12h-8zM24 48h16v4H24z"/>
+        <path fill="#203f5c" d="M24 28h4v8h-4zm12 0h4v8h-4zm-8 12h8v4h-8z"/>
+        <path fill="#ff74bf" d="M20 36h8v4h-8zm16 0h8v4h-8z"/>
+      </symbol>
+      <symbol id="pixel-earth" viewBox="0 0 72 72">
+        <path fill="#152e48" d="M24 4h24v4h8v4h8v8h4v32h-4v8h-8v4h-8v4H24v-4h-8v-4H8v-8H4V20h4v-8h8V8h8z"/>
+        <path fill="#53c9ef" d="M24 8h24v4h8v4h4v8h4v24h-4v8h-8v4h-8v4H28v-4h-8v-4h-8v-8H8V24h4v-8h8v-4h4z"/>
+        <path fill="#b9ff96" d="M24 12h12v8h-4v8h-8v4H12v-8h4v-8h8zm20 4h12v8h4v8H48v-4h-8v-8h4zM20 40h12v4h8v16H28v-4h-8v-8h-8v-4h8zm28 0h16v8h-8v8h-8z"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <main class="site-shell">
+    <header class="site-header">
+      <a class="logo" href="./index.html" aria-label="PET LINK 2003 首页"><span>PET</span><i>//</i>LINK<small>DIGITAL COMPANION NETWORK</small></a>
+      <nav aria-label="视觉 Demo 导航"><span class="nav-active">01 HOME</span><span>02 HATCH</span><span>03 SIGNAL</span></nav>
+      <div class="online"><i></i> SERVER ONLINE<br><small>USER_000408 CONNECTED</small></div>
+    </header>
+
+    <section class="hero" aria-labelledby="demo-title">
+      <div class="sky-decor" aria-hidden="true">
+        <span class="cloud cloud-one"></span><span class="cloud cloud-two"></span><span class="cloud cloud-three"></span>
+        <svg class="earth" viewBox="0 0 72 72" shape-rendering="crispEdges"><use href="#pixel-earth"/></svg>
+        <span class="orbit"></span><span class="cross cross-one">+</span><span class="cross cross-two">+</span>
+        <span class="pixel-star star-one">◆</span><span class="pixel-star star-two">◆</span>
+      </div>
+
+      <div class="hero-copy">
+        <span class="eyebrow">★ UNKNOWN PET SIGNAL DETECTED ★</span>
+        <h1 id="demo-title"><span>UPLOAD.</span><span>HATCH.</span><span>TRANSLATE!</span></h1>
+        <p>把现实中的宠物连接进这台机器，<br>孵出它的数字分身。</p>
+      </div>
+
+      <div class="console-wrap">
+        <span class="cable cable-left" aria-hidden="true"></span><span class="cable cable-right" aria-hidden="true"></span>
+        <div class="console-shadow" aria-hidden="true"></div>
+        <div class="console">
+          <div class="plastic-noise" aria-hidden="true"></div>
+          <div class="console-top" aria-hidden="true"><span>PET//LINK</span><small>MODEL PT-2003 / CYBER BLUE</small><i>POWER ●</i></div>
+
+          <aside class="controls controls-left" aria-hidden="true">
+            <span class="screw screw-a"></span><span class="screw screw-b"></span>
+            <div class="dpad"><i></i></div><small>MOVE</small>
+            <div class="speaker"></div><span class="side-code">L-001<br>8 BIT</span>
+          </aside>
+
+          <section class="screen-bezel" aria-label="掌机主屏幕">
+            <div class="bezel-label"><span>PIXEL PET PORTAL</span><span>DOT MATRIX LCD</span></div>
+            <div class="lcd">
+              <div class="lcd-status"><span><i class="signal-bars"></i> PET-NET</span><span>LV.00 <i class="battery"></i></span></div>
+              <div class="scan-area">
+                <span class="screen-cloud screen-cloud-a" aria-hidden="true"></span><span class="screen-cloud screen-cloud-b" aria-hidden="true"></span>
+                <div class="pet-signal" aria-hidden="true"><span class="spark">✦</span><svg viewBox="0 0 64 64" shape-rendering="crispEdges"><use href="#pixel-pet"/></svg><span class="cursor">_</span></div>
+                <span class="ready-text">READY TO CONNECT?</span>
+                <p>选择一张宠物照片，启动数字孵化程序。</p>
+                <input class="pet-file-input" id="pet-file" type="file" accept="image/jpeg,image/png,image/webp">
+                <div class="demo-actions" aria-label="宠物照片入口">
+                  <label class="pixel-button primary" for="pet-file"><b>▶</b> 从本地上传 / UPLOAD</label>
+                  <button class="pixel-button secondary sample-button" type="button"><b>▦</b> 网页提供 / SAMPLE</button>
+                </div>
+                <span class="upload-status" aria-live="polite">WAITING FOR PET DATA...</span>
+                <span class="press-start">— PRESS START —</span>
+              </div>
+              <div class="lcd-footer"><span>CONNECT → SCAN → EGG → HATCH</span><span>SOUND: ON ♪</span></div>
+            </div>
+          </section>
+
+          <aside class="controls controls-right" aria-hidden="true">
+            <span class="screw screw-a"></span><span class="screw screw-b"></span>
+            <div class="action-key key-y">Y</div><div class="action-key key-x">X</div><div class="action-key key-a">A</div><div class="action-key key-b">B</div>
+            <small>A: OK&nbsp;&nbsp; B: BACK</small><div class="speaker"></div><span class="side-code">R-002<br>MEM 64K</span>
+          </aside>
+          <div class="mini-controls" aria-hidden="true"><span><i></i>SELECT</span><span><i></i>START</span></div>
+          <span class="serial" aria-hidden="true">S/N 0304-08-001</span><span class="warning" aria-hidden="true">⚠ DO NOT FEED AFTER MIDNIGHT</span>
+        </div>
+        <div class="keychain" aria-hidden="true"><span class="chain"></span><span class="bead"></span><svg viewBox="0 0 64 64" shape-rendering="crispEdges"><use href="#pixel-pet"/></svg></div>
+      </div>
+
+      <div class="web-widgets" aria-hidden="true">
+        <span class="marquee"><b>NEW!</b> YOUR PET IS WAITING SOMEWHERE INSIDE THE MACHINE...</span>
+        <span class="mini-window"><b>WELCOME.TXT</b><i>×</i><small>今天也要和小动物<br>交换秘密信号！</small></span>
+        <span class="counter">VISITORS<br><b>000408</b></span>
+      </div>
+    </section>
+
+    <footer class="site-footer"><span>© 2003 PET//LINK HOME COMPUTER CLUB</span><span>BEST VIEWED AT 800×600 / SOUND ON / WITH CURIOSITY</span><span class="blink">● TRANSMISSION ACTIVE</span></footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="PET LINK 宠物识别 SCAN 页面视觉 Demo。">
+  <title>PET//LINK 2003 · SCAN</title>
+  <link rel="stylesheet" href="./visual-demo.css">
+  <link rel="stylesheet" href="./scan-demo.css">
+  <script src="./flow-data.js" defer></script>
+  <script src="./scan-demo.js" defer></script>
+</head>
+<body>
+  <main class="site-shell">
+    <header class="site-header">
+      <a class="logo" href="./index.html" aria-label="返回 PET LINK 2003 首页"><span>PET</span><i>//</i>LINK<small>DIGITAL COMPANION NETWORK</small></a>
+      <nav aria-label="视觉 Demo 流程"><span>01 INPUT</span><span class="nav-active">02 SCAN</span><span>03 HATCH</span></nav>
+      <div class="online"><i></i> SCANNER ONLINE<br><small>VISION PORT / MOCK MODE</small></div>
+    </header>
+
+    <section class="hero scan-hero" aria-labelledby="scan-title">
+      <div class="sky-decor" aria-hidden="true">
+        <span class="cloud cloud-one"></span><span class="cloud cloud-two"></span><span class="cloud cloud-three"></span>
+        <span class="radar-orbit orbit-one"></span><span class="radar-orbit orbit-two"></span>
+        <span class="cross cross-one">+</span><span class="cross cross-two">+</span><span class="pixel-star star-one">◆</span><span class="pixel-star star-two">◆</span>
+      </div>
+
+      <div class="scan-heading">
+        <span class="eyebrow">STEP 02 / VISUAL SIGNAL READER</span>
+        <h1 id="scan-title">SCANNING PET...</h1>
+        <p>正在读取照片里可以观察到的特征</p>
+        <div class="progress-track" aria-label="扫描进度 78%"><i></i><span>78%</span></div>
+      </div>
+
+      <div class="console-wrap scan-console-wrap">
+        <span class="cable cable-left" aria-hidden="true"></span><span class="cable cable-right" aria-hidden="true"></span>
+        <div class="console-shadow" aria-hidden="true"></div>
+        <div class="console">
+          <div class="plastic-noise" aria-hidden="true"></div>
+          <div class="console-top" aria-hidden="true"><span>PET//LINK</span><small>MODEL PT-2003 / VISION MODULE</small><i>SCAN ●</i></div>
+
+          <aside class="controls controls-left" aria-hidden="true">
+            <span class="screw screw-a"></span><span class="screw screw-b"></span>
+            <div class="dpad"><i></i></div><small>MOVE</small><div class="speaker"></div><span class="side-code">L-001<br>8 BIT</span>
+          </aside>
+
+          <section class="screen-bezel" aria-label="宠物识别主屏幕">
+            <div class="bezel-label"><span>PIXEL PET VISION</span><span>DOT MATRIX LCD</span></div>
+            <div class="lcd scan-lcd">
+              <div class="lcd-status"><span><i class="signal-bars"></i> CAMERA_01</span><span>ANALYZING <i class="battery"></i></span></div>
+              <div class="scan-interface">
+                <div class="camera-feed">
+                  <img src="./assets/pet.jpeg" alt="趴在格子垫上、看向镜头的小狗" width="1200" height="1600">
+                  <span class="view-corner vc-one"></span><span class="view-corner vc-two"></span><span class="view-corner vc-three"></span><span class="view-corner vc-four"></span>
+                  <span class="crosshair" aria-hidden="true"><i></i></span><span class="scan-laser" aria-hidden="true"></span>
+                  <span class="capture-bits" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+                  <span class="captured-message" aria-live="polite">SIGNAL CAPTURED</span>
+                  <span class="camera-id">SUBJECT_001</span><span class="camera-rec">● REC</span>
+                </div>
+                <div class="signal-readout">
+                  <div class="readout-title"><span>SCAN RESULT</span><b>FOUND!</b></div>
+                  <dl><div><dt>TYPE</dt><dd>DOG</dd></div><div><dt>COLOR</dt><dd>WARM BROWN</dd></div><div><dt>POSE</dt><dd>LYING</dd></div><div><dt>GAZE</dt><dd>CAMERA</dd></div><div><dt>SCENE</dt><dd>INDOOR</dd></div></dl>
+                  <div class="signal-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                  <p>检测到：幼犬 · 趴卧 · 抬头看向镜头</p>
+                </div>
+              </div>
+              <div class="scan-actions"><a class="pixel-button secondary" href="./scan-demo.html"><b>◀</b> RESCAN</a><a class="pixel-button primary confirm-signal" href="./egg-demo.html"><b>▶</b> CONFIRM SIGNAL</a></div>
+              <div class="lcd-footer"><span>INPUT → <b>SCAN</b> → EGG → HATCH</span><span>MOCK VISION PASS 01</span></div>
+            </div>
+          </section>
+
+          <aside class="controls controls-right" aria-hidden="true">
+            <span class="screw screw-a"></span><span class="screw screw-b"></span>
+            <div class="action-key key-y">Y</div><div class="action-key key-x">X</div><div class="action-key key-a">A</div><div class="action-key key-b">B</div>
+            <small>A: OK&nbsp;&nbsp; B: BACK</small><div class="speaker"></div><span class="side-code">R-002<br>MEM 64K</span>
+          </aside>
+          <div class="mini-controls" aria-hidden="true"><span><i></i>SELECT</span><span><i></i>START</span></div>
+          <span class="serial" aria-hidden="true">S/N 0304-08-002</span><span class="warning" aria-hidden="true">⚠ OBSERVE, DON'T GUESS</span>
+        </div>
+      </div>
+
+      <div class="scan-widgets" aria-hidden="true">
+        <span><b>01</b> IMAGE LOADED</span><i></i><span><b>02</b> SIGNAL FOUND</span><i></i><span class="pending"><b>03</b> EGG WAITING</span>
+      </div>
+      <p class="mock-note">DEMO MODE // 当前为识别界面视觉占位，数据来自预设样例</p>
+    </section>
+
+    <footer class="site-footer"><span>© 2003 PET//LINK HOME COMPUTER CLUB</span><span>VISION MODULE / OBSERVABLE FEATURES ONLY</span><span class="blink">● SCAN IN PROGRESS</span></footer>
+  </main>
+</body>
+</html>
