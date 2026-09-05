@@ -7,6 +7,7 @@ const shareButton = document.querySelector(".share-button");
 const shareStatus = document.querySelector(".share-status");
 const downloadButton = document.querySelector(".download-gif");
 const saveImageButton = document.querySelector(".save-image");
+const homeButton = document.querySelector(".home-key");
 const questionNode = document.querySelector(".export-question");
 const replyNode = document.querySelector(".export-reply");
 const petDataNode = document.querySelector(".export-pet-data");
@@ -21,7 +22,11 @@ const palette = [
 ];
 
 if (questionNode) questionNode.textContent = question;
-if (replyNode) replyNode.textContent = reply;
+if (replyNode) {
+  replyNode.textContent = reply;
+  const replyLength = Array.from(reply).length;
+  replyNode.style.fontSize = replyLength <= 10 ? "12px" : replyLength <= 20 ? "10px" : "9px";
+}
 if (petDataNode) petDataNode.textContent = `${state.species} / ${state.mainColor} / ${state.pattern} / ${state.petCharacter.action}`;
 
 function fitText(text, max) {
@@ -35,6 +40,53 @@ function drawPixelText(ctx, text, x, y, size, color, align = "left") {
   ctx.textBaseline = "top";
   ctx.fillStyle = color;
   ctx.fillText(text, x, y);
+}
+
+function wrapTextAnywhere(ctx, text, maxWidth) {
+  const lines = [];
+  let currentLine = "";
+  for (const character of Array.from(text)) {
+    const candidate = `${currentLine}${character}`;
+    if (currentLine && ctx.measureText(candidate).width > maxWidth) {
+      lines.push(currentLine);
+      currentLine = character;
+    } else {
+      currentLine = candidate;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+  return lines.length ? lines : [""];
+}
+
+function getReplyLayout(ctx, text, box) {
+  const minimumFontSize = 9;
+  const horizontalPadding = 8;
+  const verticalPadding = 6;
+  for (let fontSize = 19; fontSize >= minimumFontSize; fontSize -= 1) {
+    ctx.font = `bold ${fontSize}px monospace`;
+    const lines = wrapTextAnywhere(ctx, text, box.width - horizontalPadding * 2);
+    const lineHeight = Math.max(fontSize, Math.round(fontSize * 1.05));
+    if (lines.length * lineHeight <= box.height - verticalPadding * 2) return { fontSize, lineHeight, lines };
+  }
+  ctx.font = `bold ${minimumFontSize}px monospace`;
+  return {
+    fontSize: minimumFontSize,
+    lineHeight: minimumFontSize,
+    lines: wrapTextAnywhere(ctx, text, box.width - horizontalPadding * 2)
+  };
+}
+
+function drawReplyText(ctx, text, box) {
+  const layout = getReplyLayout(ctx, text, box);
+  const totalHeight = layout.lines.length * layout.lineHeight;
+  const firstLineY = box.y + (box.height - totalHeight) / 2 + layout.lineHeight / 2;
+  ctx.font = `bold ${layout.fontSize}px monospace`;
+  ctx.fillStyle = "#18425b";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  layout.lines.forEach((line, index) => {
+    ctx.fillText(line, box.x + box.width / 2, firstLineY + index * layout.lineHeight);
+  });
 }
 
 function drawFrame(ctx, petImage, frameIndex) {
@@ -69,12 +121,13 @@ function drawFrame(ctx, petImage, frameIndex) {
   ctx.strokeRect(29, 76, 112, 112);
   if (petImage?.complete && petImage.naturalWidth) ctx.drawImage(petImage, 37, 82 + bob, 96, 96);
 
+  const replyBox = { x: 151, y: 54, width: 141, height: 50 };
   ctx.fillStyle = "#edfbff";
-  ctx.fillRect(151, 54, 141, 50);
+  ctx.fillRect(replyBox.x, replyBox.y, replyBox.width, replyBox.height);
   ctx.strokeStyle = "#ff63b8";
   ctx.lineWidth = 4;
-  ctx.strokeRect(151, 54, 141, 50);
-  drawPixelText(ctx, fitText(reply, 11), 221, 68, 19, "#18425b", "center");
+  ctx.strokeRect(replyBox.x, replyBox.y, replyBox.width, replyBox.height);
+  drawReplyText(ctx, reply, replyBox);
 
   ctx.fillStyle = "#0d1f36";
   ctx.fillRect(151, 117, 141, 71);
@@ -242,6 +295,15 @@ shareButton?.addEventListener("click", async () => {
   } catch (error) {
     if (error?.name !== "AbortError") shareStatus.textContent = "SHARE UNAVAILABLE — SAVE THE GIF INSTEAD";
   }
+});
+
+homeButton?.addEventListener("click", () => {
+  if (homeButton.disabled) return;
+  homeButton.disabled = true;
+  homeButton.classList.add("is-pressed");
+  window.clearInterval(previewTimer);
+  window.PetFlow.reset();
+  window.setTimeout(() => { window.location.href = "./index.html"; }, 120);
 });
 
 buildExports();
