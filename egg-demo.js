@@ -9,6 +9,7 @@ const eggDataValues = document.querySelectorAll(".egg-data span");
 const enterWorld = document.querySelector(".enter-world");
 const eggPattern = document.querySelector(".egg-pattern");
 const formId = document.querySelector(".transform-lcd .lcd-footer span:last-child");
+const hatchHint = document.querySelector(".hatch-hint");
 
 enterWorld?.setAttribute("tabindex", "-1");
 
@@ -35,16 +36,45 @@ if (eggButton && transformStage && shellStatus && shellFill) {
   const shellValues = [100, 88, 75, 63, 50, 38, 25, 13, 0];
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   let hitCount = 0;
+  let reminderTimer;
+  let reminderResetTimer;
+
+  function clearReminder() {
+    window.clearTimeout(reminderTimer);
+    window.clearTimeout(reminderResetTimer);
+    transformStage.classList.remove("is-idle-reminding");
+    eggButton.classList.remove("needs-attention");
+  }
+
+  function scheduleReminder() {
+    clearReminder();
+    if (reduceMotion || hitCount >= 8) return;
+    reminderTimer = window.setTimeout(() => {
+      transformStage.classList.add("is-idle-reminding");
+      eggButton.classList.add("needs-attention");
+      reminderResetTimer = window.setTimeout(() => {
+        transformStage.classList.remove("is-idle-reminding");
+        eggButton.classList.remove("needs-attention");
+        scheduleReminder();
+      }, 950);
+    }, 2700);
+  }
 
   eggButton.disabled = true;
   window.setTimeout(() => {
     eggButton.disabled = false;
+    eggButton.classList.add("is-ready");
+    scheduleReminder();
   }, reduceMotion ? 0 : 1540);
 
   eggButton.addEventListener("click", () => {
     if (hitCount >= 8) return;
 
+    clearReminder();
     hitCount += 1;
+    transformStage.classList.add("has-started");
+    eggButton.classList.remove("is-ready");
+    if (hatchHint) hatchHint.setAttribute("aria-hidden", "true");
     const shell = shellValues[hitCount];
     const stage = hitCount <= 2 ? "small" : hitCount <= 4 ? "medium" : hitCount <= 6 ? "large" : hitCount === 7 ? "critical" : "hatched";
 
@@ -68,6 +98,8 @@ if (eggButton && transformStage && shellStatus && shellFill) {
         enterWorld?.classList.add("is-ready");
         enterWorld?.removeAttribute("tabindex");
       }, reduceMotion ? 0 : 680);
+    } else {
+      scheduleReminder();
     }
   });
 }
