@@ -203,6 +203,75 @@ function createPetCharacter(data, previous = {}) {
 const EMPTY_NORMALIZED_PET = normalizePetData({});
 const EMPTY_EGG_STYLE = createEggStyle(EMPTY_NORMALIZED_PET);
 const EMPTY_CHARACTER = createPetCharacter(EMPTY_NORMALIZED_PET);
+const SCAN_CACHE_KEY = "petTranslator.scanCache.v1";
+const REPLY_CACHE_KEY = "petTranslator.replyCache.v1";
+const apiInFlight = { scan: new Map(), reply: new Map() };
+const lastApiCall = { scan: 0, reply: 0 };
+
+function readCache(key) {
+  try { return JSON.parse(localStorage.getItem(key) || "{}"); }
+  catch { return {}; }
+}
+
+function writeCache(key, value, limit) {
+  try {
+    const entries = Object.entries(value)
+      .sort(([, first], [, second]) => Number(second?.cachedAt || 0) - Number(first?.cachedAt || 0))
+      .slice(0, limit);
+    localStorage.setItem(key, JSON.stringify(Object.fromEntries(entries)));
+  } catch {}
+}
+
+async function inputHash(value) {
+  const text = String(value || "");
+  if (globalThis.crypto?.subtle && globalThis.TextEncoder) {
+    const bytes = new TextEncoder().encode(text);
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv-${(hash >>> 0).toString(16)}`;
+}
+
+function mockRecognition(seed = "") {
+  const options = [
+    { species: "dog", main_colors: ["brown", "white"], pattern: "bicolor", ear_shape: "floppy", body_type: "medium", pose: "lying", action: "looking up", scene: "indoors" },
+    { species: "cat", main_colors: ["orange", "white"], pattern: "bicolor", ear_shape: "erect", body_type: "medium", pose: "sitting", action: "idle", scene: "indoors" },
+    { species: "rabbit", main_colors: ["white", "gray"], pattern: "points", ear_shape: "long", body_type: "small", pose: "sitting", action: "watching", scene: "indoors" },
+    { species: "cat", main_colors: ["gray"], pattern: "striped", ear_shape: "erect", body_type: "medium", pose: "lying", action: "resting", scene: "indoors" }
+  ];
+  const total = Array.from(seed).reduce((sum, character) => sum + character.codePointAt(0), 0);
+  return structuredClone(options[total % options.length]);
+}
+
+function replyIdentity(question, state) {
+  const petData = state.normalizedPetData || {};
+  return JSON.stringify({
+    question: String(question || "").trim(),
+    petData: {
+      species: petData.species,
+      normalizedColors: petData.normalizedColors,
+      pattern: petData.pattern,
+      earShape: petData.earShape,
+      bodyType: petData.bodyType,
+      pose: petData.pose,
+      action: petData.action,
+      scene: petData.scene,
+      gaze: petData.gaze,
+      observedState: petData.observedState
+    }
+  });
+}
+
+function waitForCooldown(kind, interval) {
+  const remaining = interval - (Date.now() - lastApiCall[kind]);
+  if (remaining <= 0) return Promise.resolve();
+  return new Promise((resolve) => window.setTimeout(resolve, remaining));
+}
 
 window.PetFlow = {
   stateKey: "petTranslator.resultState.v1",
@@ -234,7 +303,10 @@ window.PetFlow = {
     replyTitle: "",
     replyAction: "",
     replySource: "",
+    replyCacheKey: "",
     questionEmotion: "casual",
+    imageHash: "",
+    scanImageHash: "",
     image: "./assets/pet.jpeg"
   },
 
@@ -346,8 +418,9 @@ window.PetFlow = {
 
   getImage() { return this.getState().image; },
   setImage(image) { return this.reset(image); },
+  getImageHash(image = this.getImage()) { return inputHash(image); },
   normalizeRecognition(data = {}) { return normalizePetData(data); },
-  applyRecognition(data = {}, source = "vision") {
+  applyRecognition(data = {}, source = "vision", imageHash = "") {
     const rawScanResult = structuredClone(data);
     const normalizedPetData = normalizePetData(rawScanResult);
     const eggStyle = createEggStyle(normalizedPetData);
@@ -358,6 +431,8 @@ window.PetFlow = {
       normalizedPetData,
       recognition: rawScanResult,
       recognitionSource: source,
+      imageHash: imageHash || this.getState().imageHash,
+      scanImageHash: imageHash || this.getState().scanImageHash,
       petCharacter
     });
     console.log("[PET//LINK] rawScanResult", rawScanResult);
@@ -366,6 +441,71 @@ window.PetFlow = {
     console.log("[PET//LINK] petCharacter", petCharacter);
     return next;
   },
+  restoreScanFromCache(imageHash) {
+    const current = this.getState();
+    if (current.scanResult && current.scanImageHash === imageHash) {
+      console.log("[PET//LINK] CACHE HIT VISION (CURRENT STATE)");
+      return current;
+    }
+    const cached = readCache(SCAN_CACHE_KEY)[imageHash];
+    if (!cached?.result) return null;
+    console.log("[PET//LINK] CACHE HIT VISION");
+    return this.applyRecognition(cached.result, cached.source || "cache", imageHash);
+  },
+  async scanImage(imagePayload) {
+    const imageHash = await this.getImageHash();
+    const cached = this.restoreScanFromCache(imageHash);
+    if (cached) return cached;
+    if (apiInFlight.scan.has(imageHash)) {
+      console.log("[PET//LINK] CACHE HIT VISION (IN FLIGHT)");
+      return apiInFlight.scan.get(imageHash);
+    }
+
+    const request = (async () => {
+      if (location.protocol === "file:") {
+        console.log("[PET//LINK] USING MOCK VISION");
+        const result = mockRecognition(imageHash);
+        const cache = readCache(SCAN_CACHE_KEY);
+        cache[imageHash] = { result, source: "mock", cachedAt: Date.now() };
+        writeCache(SCAN_CACHE_KEY, cache, 24);
+        return this.applyRecognition(result, "mock", imageHash);
+      }
+      await waitForCooldown("scan", 900);
+      lastApiCall.scan = Date.now();
+      console.log("[PET//LINK] CALLING MODELSCOPE VISION");
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 12000);
+      try {
+        const response = await fetch("/api/pet-scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: imagePayload, imageHash }),
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error(`recognition unavailable (${response.status})`);
+        const payload = await response.json();
+        const { source = "model", ...result } = payload;
+        if (source === "mock") console.log("[PET//LINK] USING MOCK VISION");
+        if (source === "fallback") console.log("[PET//LINK] USING FALLBACK VISION");
+        const cache = readCache(SCAN_CACHE_KEY);
+        cache[imageHash] = { result, source, cachedAt: Date.now() };
+        writeCache(SCAN_CACHE_KEY, cache, 24);
+        return this.applyRecognition(result, source, imageHash);
+      } catch (error) {
+        console.log("[PET//LINK] USING FALLBACK VISION", error?.message || error);
+        const result = mockRecognition(imageHash);
+        const cache = readCache(SCAN_CACHE_KEY);
+        cache[imageHash] = { result, source: "fallback", cachedAt: Date.now() };
+        writeCache(SCAN_CACHE_KEY, cache, 24);
+        return this.applyRecognition(result, "fallback", imageHash);
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    })();
+    apiInFlight.scan.set(imageHash, request);
+    try { return await request; }
+    finally { apiInFlight.scan.delete(imageHash); }
+  },
   classifyEmotion(question) {
     const text = String(question || "");
     if (/低落|脆弱|委屈|难过|伤心|想哭|哭了|崩溃|撑不住|孤独|寂寞|害怕|好怕|失去|离开我|分手|没人爱|没人喜欢|没用|很差|爱我吗|陪着我|一直陪|不想活/i.test(text)) return "vulnerable";
@@ -373,13 +513,16 @@ window.PetFlow = {
     return "casual";
   },
   setQuestion(userQuestion) {
+    const current = this.getState();
+    if (current.userQuestion === userQuestion && current.petReply) return current;
     return this.updateState({
       userQuestion,
       questionEmotion: this.classifyEmotion(userQuestion),
       petReply: "",
       replyTitle: "",
       replyAction: "",
-      replySource: ""
+      replySource: "",
+      replyCacheKey: ""
     });
   },
   getQuestion() { return this.getState().userQuestion || "你爱我吗？"; },
@@ -442,28 +585,65 @@ window.PetFlow = {
   async generateReply(question) {
     const state = this.getState();
     const questionEmotion = this.classifyEmotion(question);
-    if (location.protocol === "file:") return this.fallbackReply(question);
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 8000);
+    const cacheKey = await inputHash(replyIdentity(question, state));
+    if (state.replyCacheKey === cacheKey && state.petReply) {
+      console.log("[PET//LINK] CACHE HIT TEXT (CURRENT STATE)");
+      return { title: state.replyTitle, message: state.petReply, action: state.replyAction, emotion: state.questionEmotion, source: state.replySource, cacheKey };
+    }
+    const cached = readCache(REPLY_CACHE_KEY)[cacheKey];
+    if (cached?.result?.message) {
+      console.log("[PET//LINK] CACHE HIT TEXT");
+      return { ...cached.result, cacheKey };
+    }
+    if (apiInFlight.reply.has(cacheKey)) {
+      console.log("[PET//LINK] CACHE HIT TEXT (IN FLIGHT)");
+      return apiInFlight.reply.get(cacheKey);
+    }
+
+    const request = (async () => {
+      if (location.protocol === "file:") {
+        console.log("[PET//LINK] USING MOCK TEXT");
+        return { ...this.fallbackReply(question), source: "mock", cacheKey };
+      }
+      await waitForCooldown("reply", 700);
+      lastApiCall.reply = Date.now();
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 8000);
+      console.log("[PET//LINK] CALLING MODELSCOPE TEXT");
+      try {
+        const response = await fetch("/api/pet-reply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question, questionEmotion, requestKey: cacheKey, pet: {
+            species: state.species, mainColor: state.mainColor, pattern: state.pattern,
+            pose: state.pose, action: state.action, scene: state.scene,
+            character: state.petCharacter,
+            normalizedPetData: state.normalizedPetData
+          }}),
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error(`reply unavailable (${response.status})`);
+        const result = await response.json();
+        if (!result.message) throw new Error("empty reply");
+        if (result.source === "mock") console.log("[PET//LINK] USING MOCK TEXT");
+        if (result.source === "fallback") console.log("[PET//LINK] USING FALLBACK TEXT");
+        return { title: result.title || "PET SIGNAL", message: result.message, action: result.action || "PET MODE", emotion: questionEmotion, source: result.source || "model", cacheKey };
+      } catch (error) {
+        console.log("[PET//LINK] USING FALLBACK TEXT", error?.message || error);
+        return { ...this.fallbackReply(question), source: "fallback", cacheKey };
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    })();
+    apiInFlight.reply.set(cacheKey, request);
     try {
-      const response = await fetch("/api/pet-reply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, questionEmotion, pet: {
-          species: state.species, mainColor: state.mainColor, pattern: state.pattern,
-          pose: state.pose, action: state.action, scene: state.scene,
-          character: state.petCharacter
-        }}),
-        signal: controller.signal
-      });
-      if (!response.ok) throw new Error("reply unavailable");
-      const result = await response.json();
-      if (!result.message) throw new Error("empty reply");
-      return { title: result.title || "PET SIGNAL", message: result.message, action: result.action || "PET MODE", emotion: questionEmotion, source: "model" };
-    } catch {
-      return this.fallbackReply(question);
+      const result = await request;
+      const cache = readCache(REPLY_CACHE_KEY);
+      cache[cacheKey] = { result, cachedAt: Date.now() };
+      writeCache(REPLY_CACHE_KEY, cache, 60);
+      return result;
     } finally {
-      window.clearTimeout(timeout);
+      apiInFlight.reply.delete(cacheKey);
     }
   },
 
@@ -474,6 +654,7 @@ window.PetFlow = {
       replyTitle: result.title,
       replyAction: result.action,
       replySource: result.source,
+      replyCacheKey: result.cacheKey || "",
       questionEmotion: result.emotion || this.classifyEmotion(question),
       petCharacter: { ...this.getState().petCharacter, action: result.action }
     });

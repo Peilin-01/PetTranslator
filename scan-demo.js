@@ -31,26 +31,15 @@ function imageDataUrl(image) {
   return canvas.toDataURL("image/jpeg", .76);
 }
 
-let recognitionPromise = Promise.resolve();
+let cachedRecognitionPromise = Promise.resolve();
 if (scannedPhoto && window.PetFlow) {
   scannedPhoto.src = window.PetFlow.getImage();
   renderRecognition(window.PetFlow.getState());
-  recognitionPromise = (async () => {
+  cachedRecognitionPromise = (async () => {
     await waitForImage(scannedPhoto);
-    if (!scannedPhoto.naturalWidth || location.protocol === "file:") return;
-    try {
-      const response = await fetch("/api/pet-scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: imageDataUrl(scannedPhoto) })
-      });
-      if (!response.ok) throw new Error("recognition unavailable");
-      const recognition = await response.json();
-      const nextState = window.PetFlow.applyRecognition(recognition, "vision");
-      renderRecognition(nextState);
-    } catch {
-      renderRecognition(window.PetFlow.getState());
-    }
+    const imageHash = await window.PetFlow.getImageHash();
+    const cachedState = window.PetFlow.restoreScanFromCache(imageHash);
+    if (cachedState) renderRecognition(cachedState);
   })();
 }
 
@@ -61,10 +50,18 @@ if (confirmSignal && cameraFeed) {
 
     const destination = confirmSignal.href;
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const originalLabel = confirmSignal.textContent;
 
     confirmSignal.classList.add("is-busy");
     confirmSignal.setAttribute("aria-disabled", "true");
-    await recognitionPromise;
+    confirmSignal.textContent = "■ ANALYZING...";
+    await cachedRecognitionPromise;
+    if (scannedPhoto?.naturalWidth) {
+      const nextState = await window.PetFlow.scanImage(imageDataUrl(scannedPhoto));
+      renderRecognition(nextState);
+    } else {
+      confirmSignal.textContent = originalLabel;
+    }
     cameraFeed.classList.add("is-captured");
     document.body.classList.add("signal-captured");
 

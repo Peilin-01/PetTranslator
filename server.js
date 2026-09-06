@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +14,11 @@ try {
 const port = Number(process.env.PORT || 4173);
 const model = process.env.MODELSCOPE_TEXT_MODEL || "Qwen/Qwen3-VL-8B-Instruct";
 const visionModel = process.env.MODELSCOPE_VISION_MODEL || "Qwen/Qwen3-VL-8B-Instruct";
+const useMock = /^(1|true|yes|on)$/i.test(process.env.USE_MOCK || "");
 const endpoint = "https://api-inference.modelscope.cn/v1/chat/completions";
+const responseCache = { scan: new Map(), reply: new Map() };
+const inFlight = { scan: new Map(), reply: new Map() };
+const recentCalls = new Map();
 const mimeTypes = {
   ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml",
@@ -23,6 +28,55 @@ const mimeTypes = {
 function sendJson(response, status, value) {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
   response.end(JSON.stringify(value));
+}
+
+function sha256(value) {
+  return createHash("sha256").update(String(value || "")).digest("hex");
+}
+
+function remember(cache, key, value, maximum) {
+  if (cache.has(key)) cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > maximum) cache.delete(cache.keys().next().value);
+  return value;
+}
+
+function rateLimited(kind, client, interval) {
+  const key = `${kind}:${client || "local"}`;
+  const now = Date.now();
+  const previous = recentCalls.get(key) || 0;
+  recentCalls.set(key, now);
+  return now - previous < interval;
+}
+
+function mockRecognition(seed = "") {
+  const options = [
+    { species: "dog", main_colors: ["brown", "white"], pattern: "bicolor", ear_shape: "floppy", body_type: "medium", pose: "lying", action: "looking up", scene: "indoors" },
+    { species: "cat", main_colors: ["orange", "white"], pattern: "bicolor", ear_shape: "erect", body_type: "medium", pose: "sitting", action: "idle", scene: "indoors" },
+    { species: "rabbit", main_colors: ["white", "gray"], pattern: "points", ear_shape: "long", body_type: "small", pose: "sitting", action: "watching", scene: "indoors" },
+    { species: "cat", main_colors: ["gray"], pattern: "striped", ear_shape: "erect", body_type: "medium", pose: "lying", action: "resting", scene: "indoors" }
+  ];
+  const number = Number.parseInt(seed.slice(0, 8), 16) || 0;
+  return { ...options[number % options.length] };
+}
+
+function replyMeta(questionEmotion) {
+  return {
+    casual: { title: "LIVE PET SIGNAL", action: "PET MODE" },
+    worry: { title: "COMPANION SIGNAL", action: "STAY MODE" },
+    vulnerable: { title: "SOFT SIGNAL", action: "CLOSER MODE" }
+  }[questionEmotion];
+}
+
+function mockReply(question, questionEmotion, key) {
+  const pools = {
+    casual: ["是不是要开饭了？", "先闻一下再说。", "我刚忙着看窗外。", "讲完能出去玩吗？"],
+    worry: ["先趴会儿，我守着。", "吃点东西再烦。", "慢一点，我等你。", "我把拖鞋借你。"],
+    vulnerable: ["那你靠过来。", "我在这儿呢。", "今天分你一点位置。", "先挨着我坐会儿。"]
+  };
+  const choices = pools[questionEmotion] || pools.casual;
+  const number = Number.parseInt(key.slice(0, 8), 16) || Array.from(question).length;
+  return { ...replyMeta(questionEmotion), message: choices[number % choices.length] };
 }
 
 function readBody(request, maximumSize = 64 * 1024) {
@@ -68,12 +122,6 @@ function parseRecognition(value) {
 }
 
 async function scanPet(request, response) {
-  const apiKey = process.env.MODELSCOPE_TOKEN;
-  if (!apiKey || apiKey === "这里替换成我的新Token") {
-    sendJson(response, 503, { error: "Vision model is not configured." });
-    return;
-  }
-
   let payload;
   try {
     payload = JSON.parse(await readBody(request, 3 * 1024 * 1024));
@@ -86,39 +134,68 @@ async function scanPet(request, response) {
     sendJson(response, 400, { error: "A JPEG, PNG, or WebP data URL is required." });
     return;
   }
+  const imageHash = sha256(image);
+  if (responseCache.scan.has(imageHash)) {
+    console.log("[PET//LINK] CACHE HIT VISION");
+    sendJson(response, 200, responseCache.scan.get(imageHash));
+    return;
+  }
+  if (inFlight.scan.has(imageHash)) {
+    console.log("[PET//LINK] CACHE HIT VISION (IN FLIGHT)");
+    sendJson(response, 200, await inFlight.scan.get(imageHash));
+    return;
+  }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
   const instruction = `只根据照片中能观察到的内容识别宠物，并只返回一个JSON对象，不要Markdown。字段必须完整且名称必须一致：
 {"species":"dog|cat|rabbit|hamster|generic","main_colors":["black","white"],"pattern":"solid|bicolor|tricolor|spotted|striped|points","ear_shape":"floppy|erect|semi_erect|long|round|unknown","body_type":"small|medium|large|slim|stocky","pose":"简短英文","action":"简短英文","scene":"简短英文"}
 main_colors必须是数组，按宠物身体占比从高到低保留1至3种毛色。黑白、三花、虎斑、斑点宠物不能合并成单一颜色。pattern必须描述毛色分布，不要根据背景颜色判断宠物颜色。不确定的单个字段使用generic、gray、solid或unknown，只补该字段，不要覆盖其他已经识别出的信息。不要推断品种、健康或真实情绪。`;
+  const operation = (async () => {
+    const fallback = (source, reason) => {
+      console.log(`[PET//LINK] ${source === "mock" ? "USING MOCK" : "USING FALLBACK"} VISION${reason ? ` (${reason})` : ""}`);
+      return { ...mockRecognition(imageHash), source };
+    };
+    if (useMock) return fallback("mock", "USE_MOCK=true");
+    const apiKey = process.env.MODELSCOPE_TOKEN;
+    if (!apiKey || apiKey === "这里替换成我的新Token") return fallback("fallback", "token unavailable");
+    if (rateLimited("scan", request.socket.remoteAddress, 900)) return fallback("fallback", "rate limited");
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    console.log("[PET//LINK] CALLING MODELSCOPE VISION");
+    try {
+      const upstream = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: visionModel,
+          temperature: 0.1,
+          max_tokens: 320,
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: instruction },
+              { type: "image_url", image_url: { url: image } }
+            ]
+          }]
+        }),
+        signal: controller.signal
+      });
+      if (!upstream.ok) throw new Error(`upstream ${upstream.status}`);
+      const data = await upstream.json();
+      return { ...parseRecognition(data.choices?.[0]?.message?.content), source: "model" };
+    } catch (error) {
+      return fallback("fallback", error?.name === "AbortError" ? "timeout" : error?.message);
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
+  inFlight.scan.set(imageHash, operation);
   try {
-    const upstream = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: visionModel,
-        temperature: 0.1,
-        max_tokens: 320,
-        messages: [{
-          role: "user",
-          content: [
-            { type: "text", text: instruction },
-            { type: "image_url", image_url: { url: image } }
-          ]
-        }]
-      }),
-      signal: controller.signal
-    });
-    if (!upstream.ok) throw new Error(`upstream ${upstream.status}`);
-    const data = await upstream.json();
-    const recognition = parseRecognition(data.choices?.[0]?.message?.content);
-    sendJson(response, 200, recognition);
-  } catch {
-    sendJson(response, 502, { error: "Vision recognition unavailable." });
+    const result = await operation;
+    remember(responseCache.scan, imageHash, result, 40);
+    sendJson(response, 200, result);
   } finally {
-    clearTimeout(timeout);
+    inFlight.scan.delete(imageHash);
   }
 }
 
@@ -135,12 +212,6 @@ function cleanReply(value) {
 }
 
 async function createPetReply(request, response) {
-  const apiKey = process.env.MODELSCOPE_TOKEN;
-  if (!apiKey || apiKey === "这里替换成我的新Token") {
-    sendJson(response, 503, { error: "Model service is not configured; the browser will use its local fallback." });
-    return;
-  }
-
   let payload;
   try {
     payload = JSON.parse(await readBody(request));
@@ -156,9 +227,27 @@ async function createPetReply(request, response) {
     sendJson(response, 400, { error: "Question is required." });
     return;
   }
+  const replyKey = sha256(JSON.stringify({ question, pet: {
+    species: String(pet.species || ""),
+    mainColor: String(pet.mainColor || ""),
+    pattern: String(pet.pattern || ""),
+    pose: String(pet.pose || ""),
+    action: String(pet.action || ""),
+    scene: String(pet.scene || ""),
+    characterSignature: String(pet.character?.signature || ""),
+    normalizedPetData: pet.normalizedPetData || null
+  }}));
+  if (responseCache.reply.has(replyKey)) {
+    console.log("[PET//LINK] CACHE HIT TEXT");
+    sendJson(response, 200, responseCache.reply.get(replyKey));
+    return;
+  }
+  if (inFlight.reply.has(replyKey)) {
+    console.log("[PET//LINK] CACHE HIT TEXT (IN FLIGHT)");
+    sendJson(response, 200, await inFlight.reply.get(replyKey));
+    return;
+  }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 7000);
   const toneInstruction = {
     casual: "这是轻松或日常问题：大胆抓错重点，把话题拐到吃饭、睡觉、散步、零食、气味、脚脚或翻垃圾桶等宠物关心的具体小事；可以理直气壮、荒谬、稍微欠一点。",
     worry: "这是普通烦恼：听得很认真但只理解了一半，用宠物式的具体办法回应，例如靠近、趴着、叼东西或催人吃饭；允许轻微跑题和冷幽默，但要隐约让人感觉它愿意待在主人旁边。",
@@ -186,35 +275,52 @@ async function createPetReply(request, response) {
 
 宠物资料：种类=${pet.species || "未知"}，主色=${pet.mainColor || "未知"}，花纹=${pet.pattern || "未知"}，姿态=${pet.pose || "未知"}，动作=${pet.action || "未知"}，场景=${pet.scene || "未知"}。`;
 
+  const operation = (async () => {
+    const fallback = (source, reason) => {
+      console.log(`[PET//LINK] ${source === "mock" ? "USING MOCK" : "USING FALLBACK"} TEXT${reason ? ` (${reason})` : ""}`);
+      return { ...mockReply(question, questionEmotion, replyKey), source };
+    };
+    if (useMock) return fallback("mock", "USE_MOCK=true");
+    const apiKey = process.env.MODELSCOPE_TOKEN;
+    if (!apiKey || apiKey === "这里替换成我的新Token") return fallback("fallback", "token unavailable");
+    if (rateLimited("reply", request.socket.remoteAddress, 700)) return fallback("fallback", "rate limited");
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 7000);
+    console.log("[PET//LINK] CALLING MODELSCOPE TEXT");
+    try {
+      const upstream = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          temperature: 0.92,
+          max_tokens: 32,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: question }
+          ]
+        }),
+        signal: controller.signal
+      });
+      if (!upstream.ok) throw new Error(`upstream ${upstream.status}`);
+      const data = await upstream.json();
+      const message = cleanReply(data.choices?.[0]?.message?.content);
+      if (!message) throw new Error("empty or invalid model reply");
+      return { ...replyMeta(questionEmotion), message, source: "model" };
+    } catch (error) {
+      return fallback("fallback", error?.name === "AbortError" ? "timeout" : error?.message);
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
+  inFlight.reply.set(replyKey, operation);
   try {
-    const upstream = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        temperature: 0.92,
-        max_tokens: 32,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: question }
-        ]
-      }),
-      signal: controller.signal
-    });
-    if (!upstream.ok) throw new Error(`upstream ${upstream.status}`);
-    const data = await upstream.json();
-    const message = cleanReply(data.choices?.[0]?.message?.content);
-    if (!message) throw new Error("empty or invalid model reply");
-    const responseMeta = {
-      casual: { title: "LIVE PET SIGNAL", action: "PET MODE" },
-      worry: { title: "COMPANION SIGNAL", action: "STAY MODE" },
-      vulnerable: { title: "SOFT SIGNAL", action: "CLOSER MODE" }
-    }[questionEmotion];
-    sendJson(response, 200, { ...responseMeta, message });
-  } catch {
-    sendJson(response, 502, { error: "Model reply unavailable; the browser will use its local fallback." });
+    const result = await operation;
+    remember(responseCache.reply, replyKey, result, 120);
+    sendJson(response, 200, result);
   } finally {
-    clearTimeout(timeout);
+    inFlight.reply.delete(replyKey);
   }
 }
 
@@ -256,5 +362,6 @@ const server = createServer(async (request, response) => {
 
 server.listen(port, "127.0.0.1", () => {
   console.log(`PET//LINK running at http://127.0.0.1:${port}`);
-  if (!process.env.MODELSCOPE_TOKEN || process.env.MODELSCOPE_TOKEN === "这里替换成我的新Token") console.log("MODELSCOPE_TOKEN is not set; local fallback replies remain active.");
+  if (useMock) console.log("[PET//LINK] USING MOCK (USE_MOCK=true; ModelScope credits will not be used)");
+  else if (!process.env.MODELSCOPE_TOKEN || process.env.MODELSCOPE_TOKEN === "这里替换成我的新Token") console.log("[PET//LINK] USING FALLBACK (MODELSCOPE_TOKEN is not configured)");
 });

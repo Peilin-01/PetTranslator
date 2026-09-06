@@ -11,12 +11,18 @@ try {
 }
 
 const apiKey = process.env.MODELSCOPE_TOKEN;
+const useMock = /^(1|true|yes|on)$/i.test(process.env.USE_MOCK || "");
+if (useMock) {
+  console.log("[PET//LINK] USING MOCK TEST (USE_MOCK=true; ModelScope was not called)");
+  process.exit(0);
+}
 if (!apiKey || apiKey === "这里替换成我的新Token") {
   console.error("Replace MODELSCOPE_TOKEN in .env before running this optional vision test.");
   process.exit(1);
 }
 
 const imageBase64 = fs.readFileSync(resolve(projectRoot, "assets/pet.jpeg")).toString("base64");
+console.log("[PET//LINK] CALLING MODELSCOPE VISION TEST");
 const response = await fetch("https://api-inference.modelscope.cn/v1/chat/completions", {
   method: "POST",
   headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
